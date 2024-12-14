@@ -142,6 +142,13 @@ func (pkgDefs *PackagesDefinitions) parseTypesFromFile(astFile *ast.File, packag
 						TypeSpec: typeSpec,
 					}
 
+					if generalDeclaration.Doc != nil {
+						typeSpecDef.TypeSpec.Doc = generalDeclaration.Doc
+					}
+					if typeSpec.Comment != nil {
+						typeSpecDef.TypeSpec.Comment = typeSpec.Comment
+					}
+
 					if idt, ok := typeSpec.Type.(*ast.Ident); ok && IsGolangPrimitiveType(idt.Name) && parsedSchemas != nil {
 						parsedSchemas[typeSpecDef] = &Schema{
 							PkgPath: typeSpecDef.PkgPath,

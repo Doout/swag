@@ -805,7 +805,7 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 
 	// type Foo struct {...}
 	case *ast.StructType:
-		return p.parseStructV3(file, expr.Fields)
+		return p.parseStructV3(file, expr)
 
 	// type Foo Baz
 	case *ast.Ident:
@@ -878,37 +878,51 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 	return p.parseGenericTypeExprV3(file, typeExpr)
 }
 
-func (p *Parser) parseStructV3(file *ast.File, fields *ast.FieldList) (*spec.RefOrSpec[spec.Schema], error) {
-	required, properties := make([]string, 0), make(map[string]*spec.RefOrSpec[spec.Schema])
+func (p *Parser) parseStructV3(file *ast.File, struc *ast.StructType) (*spec.RefOrSpec[spec.Schema], error) {
+	required, properties, oneOfSchemas := make([]string, 0), make(map[string]*spec.RefOrSpec[spec.Schema]), make([]*spec.RefOrSpec[spec.Schema], 0)
+	annotations := ExtractStructAnnotations(file, struc)
+	var oneOfTypes []string
+	if val, ok := annotations["oneof"]; ok {
+		oneOfTypes = strings.Split(val, ",")
+	}
+	// When we have oneOf, we don't need to parse the fields
+	if len(oneOfTypes) == 0 {
+		for _, field := range struc.Fields.List {
+			fieldProps, requiredFromAnon, err := p.parseStructFieldV3(file, field)
+			if err != nil {
+				if errors.Is(err, ErrFuncTypeField) || errors.Is(err, ErrSkippedField) {
+					continue
+				}
 
-	for _, field := range fields.List {
-		fieldProps, requiredFromAnon, err := p.parseStructFieldV3(file, field)
-		if err != nil {
-			if err == ErrFuncTypeField || err == ErrSkippedField {
+				return nil, err
+			}
+
+			if len(fieldProps) == 0 {
 				continue
 			}
 
-			return nil, err
-		}
+			required = append(required, requiredFromAnon...)
 
-		if len(fieldProps) == 0 {
-			continue
-		}
-
-		required = append(required, requiredFromAnon...)
-
-		for k, v := range fieldProps {
-			properties[k] = v
+			for k, v := range fieldProps {
+				properties[k] = v
+			}
 		}
 	}
 
-	sort.Strings(required)
+	for _, oneOfType := range oneOfTypes {
+		oneOfSchema, err := p.getTypeSchemaV3(oneOfType, file, true)
+		if err != nil {
+			return nil, fmt.Errorf("can't find oneOf type %q: %v", oneOfType, err)
+		}
+		oneOfSchemas = append(oneOfSchemas, oneOfSchema)
+	}
 
+	sort.Strings(required)
 	result := spec.NewSchemaSpec()
 	result.Spec.Type = spec.NewSingleOrArray(OBJECT)
 	result.Spec.Properties = properties
 	result.Spec.Required = required
-
+	result.Spec.OneOf = oneOfSchemas
 	return result, nil
 }
 
@@ -1084,4 +1098,39 @@ func (p *Parser) GetSchemaTypePathV3(schema *spec.RefOrSpec[spec.Schema], depth 
 func (p *Parser) getSchemaByRef(ref *spec.Ref) *spec.Schema {
 	searchString := strings.ReplaceAll(ref.Ref, "#/components/schemas/", "")
 	return p.openAPI.Components.Spec.Schemas[searchString].Spec
+}
+
+// ExtractStructAnnotations extracts annotations (comments containing '@') for a given StructType.
+// Returns a slice of annotations as strings.
+func ExtractStructAnnotations(file *ast.File, struc *ast.StructType) map[string]string {
+	annotations := make(map[string]string)
+
+	// Traverse the file to find the GenDecl containing the StructType
+	ast.Inspect(file, func(node ast.Node) bool {
+		genDecl, ok := node.(*ast.GenDecl)
+		if !ok {
+			return true
+		}
+		for _, spe := range genDecl.Specs {
+			typeSpec, ok := spe.(*ast.TypeSpec)
+			if !ok || typeSpec.Type != struc {
+				continue
+			}
+			if genDecl.Doc != nil {
+				for _, comment := range genDecl.Doc.List {
+					idx := strings.Index(comment.Text, "@")
+					if idx != -1 {
+						line := comment.Text[idx+1:]
+						idxSpace := strings.Index(line, " ")
+						if idxSpace != -1 {
+							annotations[strings.ToLower(line[:idxSpace])] = line[idxSpace+1:]
+						}
+					}
+				}
+			}
+		}
+		return false
+	})
+
+	return annotations
 }

@@ -345,7 +345,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	var oneOfSchemas []*spec.RefOrSpec[spec.Schema]
 	oneOfTagValue := ps.tag.Get(oneOfTag)
 	if oneOfTagValue != "" {
-		oneOfTypes := strings.Split((oneOfTagValue), ",")
+		oneOfTypes := strings.Split(oneOfTagValue, ",")
 		for _, oneOfType := range oneOfTypes {
 			oneOfSchema, err := ps.p.getTypeSchemaV3(oneOfType, ps.file, true)
 			if err != nil {
@@ -369,6 +369,12 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 		}
 
 		elemSchema.Format = field.formatType
+	}
+
+	if len(oneOfSchemas) > 0 {
+		// If we have oneOf schemas, remove the type from the schema
+		elemSchema.Type = nil
+		elemSchema.Properties = nil
 	}
 
 	elemSchema.Maximum = field.maximum
