@@ -490,7 +490,6 @@ func getSecurityDefinitionKey(lines []string) string {
 		if strings.HasPrefix(strings.ToLower(line), "@securitydefinitions") {
 			// Check if the string have tabs or spaces, replace them with a single space
 			line = strings.ReplaceAll(line, "\t", " ")
-			line = strings.ReplaceAll(line, "  ", " ")
 			splittedLine := strings.Split(line, " ")
 			return splittedLine[len(splittedLine)-1]
 		}
